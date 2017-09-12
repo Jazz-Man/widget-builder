@@ -1,2 +1,2 @@
-# wp-widgets-helper
-допоміжний клас для зручної реєстрації віджетів теми
+# WidgetBuilder
+A class for easy registration of widgets in CMS WordPress
