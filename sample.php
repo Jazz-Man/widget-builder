@@ -15,35 +15,35 @@ class WidgetBoxes extends WidgetBuilder {
   public function __construct() {
 
     $args           = array(
-      'label'       => __( 'Boxes', 'superlist' ),
-      'description' => __( 'Text boxes with icons.', 'superlist' ),
+      'label'       => __( 'Boxes', 'your_language' ),
+      'description' => __( 'Text boxes with icons.', 'your_language' ),
     );
     $args['fields'] = array(
       array(
-        'name' => __( 'Title', 'superlist' ),
+        'name' => __( 'Title', 'your_language' ),
         'id'   => 'title',
         'type' => 'text',
       ),
       array(
-        'name' => __( 'Description', 'superlist' ),
+        'name' => __( 'Description', 'your_language' ),
         'id'   => 'description',
         'type' => 'textarea',
       ),
       array(
-        'name' => '1.' . __( 'Title:', 'superlist' ),
+        'name' => '1.' . __( 'Title:', 'your_language' ),
         'type' => 'checkbox',
-        'std'  => __( 'Title:', 'superlist' ),
+        'std'  => __( 'Title:', 'your_language' ),
       ),
       array(
-        'name' => '1.' . __( 'Content:', 'superlist' ),
+        'name' => '1.' . __( 'Content:', 'your_language' ),
         'type' => 'textarea',
       ),
       array(
-        'name' => '1.' . __( 'Icon Class:', 'superlist' ),
+        'name' => '1.' . __( 'Icon Class:', 'your_language' ),
         'type' => 'text',
       ),
       array(
-        'name'   => '1.' . __( 'Read More Link:', 'superlist' ),
+        'name'   => '1.' . __( 'Read More Link:', 'your_language' ),
         'type'   => 'select',
         'fields' => $this->getPageList(),
       ),
@@ -96,7 +96,7 @@ class WidgetBoxes extends WidgetBuilder {
             <?php if ( ! empty( $read_more ) ) : ?>
                         <a href="<?php echo wp_kses( $read_more,
               wp_kses_allowed_html( 'post' ) ); ?>" class="box-read-more">
-              <?php echo esc_attr__( 'Read More', 'superlist' ); ?>
+              <?php echo esc_attr__( 'Read More', 'your_language' ); ?>
                           <i class="fa fa-angle-right"></i>
                         </a>
             <?php endif; ?>
@@ -141,3 +141,12 @@ class WidgetBoxes extends WidgetBuilder {
   }
 
 }
+
+
+add_action(
+	'widgets_init',
+	function () {
+
+		register_widget(WidgetBoxes::class);
+	}
+);

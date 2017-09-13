@@ -51,12 +51,6 @@ abstract class WidgetBuilder extends \WP_Widget
             $this->options = array_merge($this->options, $options);
         }
         parent::__construct($this->slug, $this->label, $this->options);
-        add_action(
-            'widgets_init',
-            function () {
-                register_widget(static::class);
-            }
-        );
     }
 
     /**
