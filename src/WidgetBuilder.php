@@ -2,6 +2,10 @@
 
 namespace JazzMan\Widget;
 
+use CMB2;
+use CMB2_Field;
+use CMB2_hookup;
+
 /**
  * WordPress Widgets Helper Class.
  * https://github.com/Jazz-Man/wp-widgets-helper.
@@ -10,560 +14,404 @@ namespace JazzMan\Widget;
  */
 abstract class WidgetBuilder extends \WP_Widget
 {
+    protected $_instance = [];
     /**
-     * @var string
+     * @var array
      */
-    public $label;
+    protected $fields;
     /**
-     * @var string
+     * @var array
      */
-    public $slug;
+    protected $defaults;
 
     /**
      * @var array
      */
-    public $fields = array();
-    /**
-     * @var array
-     */
-    public $options = array();
-    /**
-     * @var
-     */
-    public $instance;
+    protected $keyMap = []; // TODO: Remove this if not needed
 
     /**
-     * WidgetBuilder constructor.
-     *
-     * @param array      $args
-     * @param array|null $options
+     * @var bool
      */
-    public function __construct(array $args, array $options = null)
+    public static $init = false;
+    /**
+     * @var bool
+     */
+    public static $adminInit = false;
+
+    /**
+     * CMB2_Widget constructor.
+     *
+     * @param       $class
+     * @param       $title
+     * @param array $widget_options
+     * @param array $control_options
+     */
+    public function __construct(string $class, $title, $widget_options = [], $control_options = [])
     {
-        $this->label  = isset($args['label']) ? $args['label'] : '';
-        $this->slug   = sanitize_title($this->label);
-        $this->fields = isset($args['fields']) ? $args['fields'] : array();
-        $this->options = [
-            'classname'   => $this->slug,
-            'description' => isset($args['description']) ? $args['description'] : '',
-        ];
-        if (! empty($options)) {
-            $this->options = array_merge($this->options, $options);
+        $class = str_replace('\\', '-', $class);
+
+        parent::__construct(
+        // Base ID of widget
+            $class,
+            // Widget name will appear in UI
+            $title,
+            // Widget options
+            array_merge([
+                'classname' => $class,
+                'customize_selective_refresh' => true,
+                'description' => __('A CMB2 widget boilerplate description.', 'cmb2-widget'),
+            ], $widget_options),
+            // Control Options
+            $control_options
+        );
+
+        if (null !== $this->fields) {
+            $this->processFields($this->fields);
         }
-        parent::__construct($this->slug, $this->label, $this->options);
+
+        add_filter('cmb2_show_on', [$this, 'show_on'], 10, 2);
+        add_action('admin_init', [__CLASS__, 'adminInit']);
+        add_action('init', [__CLASS__, 'init']);
     }
 
     /**
-     * Outputs the settings update form.
-     *
-     * @since  2.8.0
-     * @access public
-     *
-     * @param array $instance Current settings.
-     *
-     * @return string Default return is 'noform'.
+     * @param array $fields
      */
-    public function form($instance)
+    protected function processFields(array $fields)
     {
-        $this->setInstance($instance);
-        $form = $this->create_fields();
-        echo $form;
-    }
-
-    /**
-     * @param mixed $instance
-     */
-    public function setInstance($instance)
-    {
-        $this->instance = $instance;
-    }
-
-    /**
-     * @param string $out
-     *
-     * @return string
-     */
-    public function create_fields($out = '')
-    {
-        $out = $this->before_create_fields($out);
-        if ($this->fields !== null) {
-            foreach ($this->fields as $key) {
-                $out .= $this->create_field($key);
+        // Supporting either defining the fields in the typical CMB2 style
+        // but also by having the keys as id's instead of as a field for
+        // greater readability
+        if ($this->is_assoc($fields)) {
+            foreach ($fields as $id => $field) {
+                $fields[$id]['id'] = $id;
             }
-        }
-        $out = $this->after_create_fields($out);
-
-        return $out;
-    }
-
-    /**
-     * @param string $out
-     *
-     * @return string
-     */
-    public function before_create_fields($out = '')
-    {
-        return $out;
-    }
-
-    /**
-     * @param $key
-     *
-     * @return string
-     *
-     * @internal param string $out
-     */
-    public function create_field($key)
-    {
-        $field_id = ! isset($key['id']) ? sanitize_title($key['name']) : $key['id'];
-        if (isset($key['std'])) {
-            $key['std'] = $key['std'];
         } else {
-            $key['std'] = '';
-        }
-        if (isset($this->instance[ $field_id ])) {
-            $key['value'] = empty($this->instance[ $field_id ]) ? '' : strip_tags($this->instance[ $field_id ]);
-        } else {
-            unset($key['value']);
-        }
-        $key['_id']   = $this->get_field_id($field_id);
-        $key['_name'] = $this->get_field_name($field_id);
-        if (! isset($key['type'])) {
-            $key['type'] = 'text';
-        }
-        $field_method = 'create_field_' . str_replace('-', '_', $key['type']);
-        $p            = isset($key['class-p']) ? '<p class="' . $key['class-p'] . '">' : '<p>';
-        if (method_exists($this, $field_method)) {
-            return $p . $this->$field_method( $key ) . '</p>';
-        }
-    }
-
-    /**
-     * @param string $out
-     *
-     * @return string
-     */
-    public function after_create_fields($out = '')
-    {
-        return $out;
-    }
-
-    /**
-     * Updates a particular instance of a widget.
-     *
-     * This function should check that `$new_instance` is set correctly. The newly-calculated
-     * value of `$instance` should be returned. If false is returned, the instance won't be
-     * saved/updated.
-     *
-     * @since  2.8.0
-     * @access public
-     *
-     * @param array $new_instance New settings for this instance as input by the user via
-     *                            WP_Widget::form().
-     * @param array $old_instance Old settings for this instance.
-     *
-     * @return array|string
-     */
-    public function update($new_instance, $old_instance)
-    {
-        $this->instance = $old_instance;
-        $this->before_update_fields();
-        foreach ($this->fields as $key) {
-            $slug = ! isset($key['id']) ? sanitize_title($key['name']) : $key['id'];
-            if (isset($key['validate']) && false === $this->validate($key['validate'], $new_instance[ $slug ])) {
-                return $this->instance;
-            }
-            if (isset($key['filter'])) {
-                $this->instance[ $slug ] = $this->filter($key['filter'], $new_instance[ $slug ]);
-            } else {
-                $this->instance[ $slug ] = strip_tags($new_instance[ $slug ]);
+            foreach ($fields as $key => $field) {
+                unset($fields[$key]);
+                $fields[$field['id']] = $field;
             }
         }
 
-        return $this->after_validate_fields($this->instance);
-    }
-
-    /**
-     * @return string
-     */
-    public function before_update_fields()
-    {
-        return (string) '';
-    }
-
-    /**
-     * @param $rules
-     * @param $value
-     *
-     * @return bool
-     */
-    public function validate($rules, $value)
-    {
-        $rules       = explode('|', $rules);
-        $rules_count = count($rules);
-        if (empty($rules) || $rules_count < 1) {
-            return true;
-        }
-        foreach ((array) $rules as $rule) {
-            if (false === $this->do_validation($rule, $value)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @param        $rule
-     * @param string $value
-     *
-     * @return bool|int|void
-     */
-    public function do_validation($rule, $value = '')
-    {
-        switch ($rule) {
-            case 'alpha':
-                return ctype_alpha($value);
-                break;
-            case 'alpha_numeric':
-                return ctype_alnum($value);
-                break;
-            case 'alpha_dash':
-                return preg_match('/^[a-z0-9-_]+$/', $value);
-                break;
-            case 'numeric':
-                return ctype_digit($value);
-                break;
-            case 'integer':
-                return (bool) preg_match('/^[\-+]?[0-9]+$/', $value);
-                break;
-            case 'boolean':
-                return (bool) $value;
-                break;
-            case 'email':
-                return is_email($value);
-                break;
-            case 'decimal':
-                return (bool) preg_match('/^[\-+]?[0-9]+\.[0-9]+$/', $value);
-                break;
-            case 'natural':
-                return (bool) preg_match('/^[0-9]+$/', $value);
-            case 'natural_not_zero':
-                return ! ( ! preg_match('/^[0-9]+$/', $value) && $value === 0 );
-            default:
-                if (method_exists($this, $rule)) {
-                    return $this->$rule( $value );
+        foreach ($fields as $id => $field) {
+            // Extract default value
+            if (isset($field['default'])) {
+                if (!isset($this->defaults[$id])) {
+                    $this->defaults[$id] = $field['default'];
                 }
 
-                return false;
-                break;
+                // Remove default from field definition (messes up widget)
+                unset($fields[$id]['default']);
+            }
         }
+
+        // Build a keymap and set id_key
+        foreach ($fields as $id => $field) {
+            // Add id_key if it hasn't been set
+            if (!isset($field['id_key'])) {
+                $fields[$id]['id_key'] = $id;
+            }
+
+            // Map id to field name
+            $this->keyMap[$id] = $this->get_field_name($id);
+        }
+
+        // Set fields
+        $this->fields = $fields;
     }
 
     /**
-     * @param $filters
-     * @param $value
-     *
+     * @return array
+     */
+    protected function getFields()
+    {
+        return $this->fields;
+    }
+
+    /**
+     * @return array
+     */
+    protected function getDefaults()
+    {
+        return $this->defaults;
+    }
+
+    /**
+     * @return array
+     */
+    protected function getKeyMap()
+    {
+        return $this->keyMap;
+    }
+
+    /**
      * @return string
      */
-    public function filter($filters, $value)
+    protected function getCMB2Id()
     {
-        $filters       = explode('|', $filters);
-        $filters_count = count($filters);
-        if (empty($filters) || $filters_count < 1) {
-            return $value;
+        return $this->option_name.'_box';
+    }
+
+    /**
+     * @param bool $saving
+     *
+     * @return \CMB2
+     */
+    public function cmb2($saving = false)
+    {
+        // Create a new box in the class
+        $cmb2 = new CMB2([
+            'id' => $this->getCMB2Id(), // Option name is taken from the WP_Widget class.
+            'hookup' => false,
+            'show_on' => [
+                'key' => 'options-page', // Tells CMB2 to handle this as an option
+                'value' => [$this->option_name],
+            ],
+        ], $this->option_name);
+
+        // Add fields to form
+        foreach ($this->getFields() as $field) {
+            // Translate the id to a widget form field name if we're saving the data
+            if (!$saving) {
+                $field['id'] = $this->get_field_name($field['id']);
+            }
+
+            // Add classes
+            if (isset($field['classes']) && !\is_array($field['classes'])) {
+                $field['classes'] = [$field['classes']];
+            }
+
+            $field['classes'][] = 'cmb2-widgets';
+
+            // FIXME: Workaround for issue: https://github.com/CMB2/CMB2-Snippet-Library/issues/66
+            if ('group' === $field['type']) {
+                // Update group fields default_cb
+                foreach ($field['fields'] as $group_field_index => $group_field) {
+                    $group_field['default_cb'] = [$this, 'default_cb'];
+
+                    $field['fields'][$group_field_index] = $group_field;
+                }
+            }
+
+            // Add callback and then add the field
+            $field['default_cb'] = [$this, 'default_cb'];
+            $cmb2->add_field($field);
         }
-        foreach ((array) $filters as $filter) {
-            $value = $this->do_filter($filter, $value);
+
+        return $cmb2;
+    }
+
+    public static function adminInit()
+    {
+        // Only run this once
+        if (self::$adminInit) {
+            return;
+        }
+
+        self::$adminInit = true;
+
+        // Include assets
+        self::includes();
+    }
+
+    public static function init()
+    {
+        // Only run this once
+        if (self::$init) {
+            return;
+        }
+
+        self::$init = true;
+    }
+
+    /**
+     * @param string|mixed $value
+     * @param string|mixed $object_id
+     * @param array|null   $args
+     * @param CMB2_Field   $field
+     *
+     * @return mixed
+     */
+    public function cmb2_override_meta_value($value, $object_id, array $args = null, CMB2_Field $field)
+    {
+        // FIXME: Workaround for issue: https://github.com/CMB2/CMB2-Snippet-Library/issues/66
+        if ($field->group || 'group' === $field->type()) {
+            if (isset($field->args['id_key'])) {
+                $id_key = $field->args['id_key'];
+
+                if (isset($this->_instance[$id_key])) {
+                    $value = $this->_instance[$id_key];
+                }
+            }
         }
 
         return $value;
     }
 
     /**
-     * @param        $filter
-     * @param string $value
+     * @param string|mixed $display
+     * @param array|null   $meta_box
      *
-     * @return string
+     * @return bool
      */
-    public function do_filter($filter, $value = '')
+    public function show_on($display, array $meta_box = null)
     {
-        switch ($filter) {
-            case 'strip_tags':
-                return strip_tags($value);
-                break;
-            case 'wp_strip_all_tags':
-                return wp_strip_all_tags($value);
-                break;
-            case 'esc_attr':
-                return esc_attr($value);
-                break;
-            case 'esc_url':
-                return esc_url($value);
-                break;
-            case 'esc_textarea':
-                return esc_textarea($value);
-                break;
-            default:
-                if (method_exists($this, $filter)) {
-                    return $this->$filter( $value );
-                }
-
-                return $value;
-                break;
+        if (!isset($meta_box['show_on']['key'], $meta_box['show_on']['value'])) {
+            return $display;
         }
+        if ('widget' !== !$meta_box['show_on']['key']) {
+            return $display;
+        }
+
+        if ($meta_box['show_on']['value'] === $this->option_name) {
+            return true;
+        }
+
+        return $display;
+    }
+
+    public static function includes()
+    {
+        if (\defined('DOING_AJAX') && DOING_AJAX) {
+            return;
+        }
+
+        if (\defined('CMB2_LOADED')) {
+            // Enqueue CMB assets
+            CMB2_hookup::enqueue_cmb_css();
+            CMB2_hookup::enqueue_cmb_js();
+        }
+
+        // Register assets
+        add_action('admin_enqueue_scripts', static function () {
+            wp_register_style('cmb2_widgets', self::plugins_url('cmb2-widget', '/assets/cmb2-widgets.css', __FILE__, 1), false, '1.0.0');
+            wp_register_script('cmb2_widgets', self::plugins_url('cmb2-widget', '/assets/cmb2-widgets.js', __FILE__, 1), ['jquery'], '1.0.0');
+
+            wp_enqueue_style('cmb2_widgets');
+            wp_enqueue_script('cmb2_widgets');
+        });
     }
 
     /**
-     * @param string $instance
+     * @param array $new_instance
+     * @param array $old_instance
      *
-     * @return string
+     * @return array|mixed
      */
-    public function after_validate_fields($instance = '')
+    public function update($new_instance, $old_instance)
     {
-        return $instance;
+        $fields = $this->getFields();
+        $sanitized = $this->cmb2(true)->get_sanitized_values($new_instance);
+
+        // FIXME: Workaround for file id fields not saving properly
+        foreach ($new_instance as $id => $value) {
+            if ('file' === $fields[$id]['type']) {
+                $sanitized[$id.'_id'] = $file_id = (int) $value;
+                $sanitized[$id] = wp_get_attachment_url($file_id);
+            }
+        }
+
+        return $sanitized;
     }
 
     /**
-     * @param        $key
-     * @param string $out
+     * Back-end widget form with defaults.
      *
-     * @return string
+     * @param array $instance current settings
      */
-    public function create_field_text($key, $out = '')
+    public function form($instance)
     {
-        $out   .= $this->create_field_label($key['name'], $key['_id']) . '<br/>';
-        $out   .= '<input type="text" ';
-        $out   .= $this->create_field_class($key);
-        $value = isset($key['value']) ? $key['value'] : $key['std'];
-        $out   .= $this->create_field_id_name($key);
-        $out   .= 'value="' . esc_attr__($value) . '"';
-        if (isset($key['size'])) {
-            $out .= 'size="' . esc_attr($key['size']) . '" ';
-        }
-        $out .= ' />';
-        $out .= $this->create_field_description($key);
+        // FIXME: Workaround for issue: https://github.com/CMB2/CMB2-Snippet-Library/issues/66
+        add_filter('cmb2_override_meta_value', [$this, 'cmb2_override_meta_value'], 11, 4);
 
-        return $out;
+        // If there are no settings, set up defaults
+        $this->_instance = wp_parse_args((array) $instance, $this->getDefaults());
+        $cmb2 = $this->cmb2();
+        $cmb2->object_id($this->option_name);
+        $cmb2->show_form();
+
+        remove_filter('cmb2_override_meta_value', [$this, 'cmb2_override_meta_value']);
+    }
+
+    /**
+     * @param array|null  $field_args
+     * @param \CMB2_Field $field
+     *
+     * @return mixed|null
+     */
+    public function default_cb(array $field_args = null, CMB2_Field $field)
+    {
+        // FIXME: Workaround for issue: https://github.com/CMB2/CMB2-Snippet-Library/issues/66
+        if ($field->group) {
+            if (isset($this->_instance[$field->group->args('id_key')])) {
+                $data = $this->_instance[$field->group->args('id_key')];
+
+                return (\is_array($data) && isset($data[$field->group->index][$field->args('id_key')]))
+                    ? $data[$field->group->index][$field->args('id_key')]
+                    : null;
+            }
+
+            return null;
+        }
+
+        return $this->_instance[$field->args('id_key')] ?? null;
+    }
+
+    /**
+     * @param array $arr
+     *
+     * @return bool
+     */
+    private function is_assoc(array $arr)
+    {
+        if ([] === $arr) {
+            return false;
+        }
+
+        return array_keys($arr) !== range(0, \count($arr) - 1);
     }
 
     /**
      * @param string $name
-     * @param string $id
+     * @param string $file
+     * @param string $__FILE__
+     * @param int    $depth
      *
-     * @return string
+     * @return bool|mixed|string
      */
-    public function create_field_label($name = '', $id = '')
+    public static function plugins_url(string $name, string $file, string $__FILE__, int $depth = 0)
     {
-        return '<label for="' . esc_attr($id) . '">' . esc_html($name) . '</label>';
-    }
+        // Traverse up to root
+        $dir = \dirname($__FILE__);
 
-    /**
-     * @param $class
-     *
-     * @return string
-     */
-    public function create_field_class($class)
-    {
-        $field_class = ! isset($class['class']) ? 'class="widefat"' : 'class="' . $class['class'] . '"';
-
-        return $field_class;
-    }
-
-    /**
-     * @param $id_name
-     *
-     * @return string
-     */
-    public function create_field_id_name($id_name)
-    {
-        $field_id_name = 'id="' . esc_attr($id_name['_id']) . '" name="' . esc_attr($id_name['_name']) . '"';
-
-        return $field_id_name;
-    }
-
-    /**
-     * @param $desc
-     *
-     * @return string
-     */
-    public function create_field_description($desc)
-    {
-        $field_description = ! isset($desc['desc'])
-            ? '<br/><small class="description">' . esc_html($desc['name']) . '</small>'
-            : '<br/><small class="description">' . esc_html($desc['desc']) . '</small>';
-
-        return $field_description;
-    }
-
-    /**
-     * @param        $key
-     * @param string $out
-     *
-     * @return string
-     */
-    public function create_field_image($key, $out = '')
-    {
-        $out   .= $this->create_field_label($key['name'], $key['_id']) . '<br/>';
-        $out   .= '<input type="text" ';
-        $out   .= $this->create_field_class($key);
-        $value = isset($key['value']) ? $key['value'] : $key['std'];
-        $out   .= $this->create_field_id_name($key);
-        $out   .= 'value="' . esc_url($value) . '"';
-        $out   .= ' />';
-        $out   .= $this->upload_image_button();
-        $out   .= $this->create_field_description($key);
-
-        return $out;
-    }
-
-    /**
-     * @return string
-     */
-    public function upload_image_button()
-    {
-        $button = '<button class="upload_image_button button button-primary">Upload Image</button>';
-
-        return $button;
-    }
-
-    /**
-     * @param        $key
-     * @param string $out
-     *
-     * @return string
-     */
-    public function create_field_textarea($key, $out = '')
-    {
-        $out .= $this->create_field_label($key['name'], $key['_id']) . '<br/>';
-        $out .= '<textarea ';
-        $out .= $this->create_field_class($key);
-        $out .= ! isset($key['rows']) ? 'rows="3"' : 'rows="' . $key['rows'] . '"';
-        if (isset($key['cols'])) {
-            $out .= 'cols="' . esc_attr($key['cols']) . '" ';
+        for ($i = 0; $i < $depth; ++$i) {
+            $dir = \dirname($dir);
         }
-        $value = isset($key['value']) ? $key['value'] : $key['std'];
-        $out   .= $this->create_field_id_name($key);
-        $out   .= '>' . esc_html($value);
-        $out   .= '</textarea>';
-        $out   .= $this->create_field_description($key);
 
-        return $out;
-    }
+        $root = $dir;
+        $plugins = \dirname($root);
 
-    /**
-     * @param        $key
-     * @param string $out
-     *
-     * @return string
-     */
-    public function create_field_checkbox($key, $out = '')
-    {
-        $out .= $this->create_field_label($key['name'], $key['_id']);
-        $out .= ' <input type="checkbox" ';
-        $out .= $this->create_field_class($key);
-        $out .= $this->create_field_id_name($key);
-        $out .= '" value="1" ';
-        if (( isset($key['value']) && $key['value'] === 1 ) || ( ! isset($key['value']) && $key['std'] === 1 )) {
-            $out .= ' checked="checked" ';
-        }
-        $out .= ' /> ';
-        $out .= $this->create_field_description($key);
+        // Compare plugin directory with our found root
+        if (WP_PLUGIN_DIR !== $plugins || WPMU_PLUGIN_DIR !== $plugins) {
+            // Must be a symlink, guess location based on default directory name
+            $resource = $name.'/'.$file;
+            $url = false;
 
-        return $out;
-    }
-
-    /**
-     * @param        $key
-     * @param string $out
-     *
-     * @return string
-     */
-    public function create_field_select($key, $out = '')
-    {
-        $out .= $this->create_field_label($key['name'], $key['_id']) . '<br/>';
-        $out .= '<select ';
-        if (isset($key['multiple']) && $key['multiple'] === true) {
-            $out .= 'multiple ';
-            $out .= 'size="' . count($key['fields']) . '"';
-        }
-        $out .= $this->create_field_id_name($key);
-        $out .= $this->create_field_class($key);
-        $out .= '> ';
-        $selected = isset($key['value']) ? $key['value'] : $key['std'];
-        foreach ((array) $key['fields'] as $field => $option) {
-            $out .= '<option value="' . esc_attr__($option['value']) . '" ';
-            if (esc_attr($selected) === $option['value']) {
-                $out .= ' selected="selected" ';
+            if (file_exists(WPMU_PLUGIN_DIR.'/'.$resource)) {
+                $url = WPMU_PLUGIN_URL.'/'.$resource;
+            } elseif (file_exists(WP_PLUGIN_DIR.'/'.$resource)) {
+                $url = WP_PLUGIN_URL.'/'.$resource;
             }
-            $out .= '> ' . esc_html($option['name']) . '</option>';
-        }
-        $out .= ' </select> ';
-        $out .= $this->create_field_description($key);
 
-        return $out;
-    }
-
-    /**
-     * @param        $key
-     * @param string $out
-     *
-     * @return string
-     */
-    public function create_field_select_group($key, $out = '')
-    {
-        $out      .= $this->create_field_label($key['name'], $key['_id']) . '<br/>';
-        $out      .= '<select ';
-        $out      .= $this->create_field_id_name($key);
-        $out      .= $this->create_field_class($key);
-        $out      .= '> ';
-        $selected = isset($key['value']) ? $key['value'] : $key['std'];
-        foreach ($key['fields'] as $group => $fields) {
-            $out .= '<optgroup label="' . $group . '">';
-            foreach ($this->fields as $field => $option) {
-                $out .= '<option value="' . esc_attr($option['value']) . '" ';
-                if (esc_attr($selected) === $option['value']) {
-                    $out .= ' selected="selected" ';
+            if ($url) {
+                if (is_ssl() && 0 !== strpos($url, 'https://')) {
+                    $url = str_replace('http://', 'https://', $url);
                 }
-                $out .= '> ' . esc_html($option['name']) . '</option>';
+
+                return $url;
             }
-            $out .= '</optgroup>';
         }
-        $out .= '</select>';
-        $out .= $this->create_field_description($key);
 
-        return $out;
-    }
-
-    /**
-     * @param        $key
-     * @param string $out
-     *
-     * @return string
-     */
-    public function create_field_number($key, $out = '')
-    {
-        $out   .= $this->create_field_label($key['name'], $key['_id']) . '<br/>';
-        $out   .= '<input type="number" ';
-        $out   .= $this->create_field_class($key);
-        $value = isset($key['value']) ? $key['value'] : $key['std'];
-        $out   .= $this->create_field_id_name($key);
-        $out   .= 'value="' . esc_attr__($value) . '" ';
-        if (isset($key['max'])) {
-            $out .= 'max="' . esc_attr($key['max']) . '" ';
-        }
-        if (isset($key['min'])) {
-            $out .= 'min="' . esc_attr($key['min']) . '" ';
-        }
-        if (isset($key['step'])) {
-            $out .= 'step="' . esc_attr($key['step']) . '" ';
-        }
-        if (isset($key['size'])) {
-            $out .= 'size="' . esc_attr($key['size']) . '" ';
-        }
-        $out .= ' />';
-        $out .= $this->create_field_description($key);
-
-        return $out;
+        return plugins_url($file, $root);
     }
 }
