@@ -173,7 +173,7 @@ abstract class WidgetBuilder extends \WP_Widget
         foreach ($this->getFields() as $field) {
             // Translate the id to a widget form field name if we're saving the data
             if (!$saving) {
-                $field['id'] = $this->get_field_name($field['id']);
+                $field['id'] = $this->get_field_id($field['id']);
             }
 
             // Add classes
@@ -281,15 +281,6 @@ abstract class WidgetBuilder extends \WP_Widget
             CMB2_hookup::enqueue_cmb_css();
             CMB2_hookup::enqueue_cmb_js();
         }
-
-        // Register assets
-        add_action('admin_enqueue_scripts', static function () {
-            wp_register_style('cmb2_widgets', self::plugins_url('cmb2-widget', '/assets/cmb2-widgets.css', __FILE__, 1), false, '1.0.0');
-            wp_register_script('cmb2_widgets', self::plugins_url('cmb2-widget', '/assets/cmb2-widgets.js', __FILE__, 1), ['jquery'], '1.0.0');
-
-            wp_enqueue_style('cmb2_widgets');
-            wp_enqueue_script('cmb2_widgets');
-        });
     }
 
     /**
