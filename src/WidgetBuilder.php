@@ -14,6 +14,9 @@ use CMB2_hookup;
  */
 abstract class WidgetBuilder extends \WP_Widget
 {
+    /**
+     * @var array
+     */
     protected $_instance = [];
     /**
      * @var array
@@ -23,20 +26,6 @@ abstract class WidgetBuilder extends \WP_Widget
      * @var array
      */
     protected $defaults;
-
-    /**
-     * @var array
-     */
-    protected $keyMap = []; // TODO: Remove this if not needed
-
-    /**
-     * @var bool
-     */
-    public static $init = false;
-    /**
-     * @var bool
-     */
-    public static $adminInit = false;
 
     /**
      * CMB2_Widget constructor.
@@ -50,34 +39,28 @@ abstract class WidgetBuilder extends \WP_Widget
     {
         $class = str_replace('\\', '-', $class);
 
-        parent::__construct(
-        // Base ID of widget
-            $class,
-            // Widget name will appear in UI
-            $title,
-            // Widget options
+        parent::__construct(// Base ID of widget
+            $class, // Widget name will appear in UI
+            $title, // Widget options
             array_merge([
                 'classname' => $class,
                 'customize_selective_refresh' => true,
                 'description' => __('A CMB2 widget boilerplate description.', 'cmb2-widget'),
-            ], $widget_options),
-            // Control Options
-            $control_options
-        );
+            ], $widget_options), // Control Options
+            $control_options);
 
         if (null !== $this->fields) {
-            $this->processFields($this->fields);
+            $this->process_fields($this->fields);
         }
 
         add_filter('cmb2_show_on', [$this, 'show_on'], 10, 2);
-        add_action('admin_init', [__CLASS__, 'adminInit']);
-        add_action('init', [__CLASS__, 'init']);
+        add_action('admin_init', [$this, 'admin_init']);
     }
 
     /**
      * @param array $fields
      */
-    protected function processFields(array $fields)
+    protected function process_fields(array $fields)
     {
         // Supporting either defining the fields in the typical CMB2 style
         // but also by having the keys as id's instead of as a field for
@@ -111,9 +94,6 @@ abstract class WidgetBuilder extends \WP_Widget
             if (!isset($field['id_key'])) {
                 $fields[$id]['id_key'] = $id;
             }
-
-            // Map id to field name
-            $this->keyMap[$id] = $this->get_field_name($id);
         }
 
         // Set fields
@@ -121,107 +101,30 @@ abstract class WidgetBuilder extends \WP_Widget
     }
 
     /**
-     * @return array
-     */
-    protected function getFields()
-    {
-        return $this->fields;
-    }
-
-    /**
-     * @return array
-     */
-    protected function getDefaults()
-    {
-        return $this->defaults;
-    }
-
-    /**
-     * @return array
-     */
-    protected function getKeyMap()
-    {
-        return $this->keyMap;
-    }
-
-    /**
-     * @return string
-     */
-    protected function getCMB2Id()
-    {
-        return $this->option_name.'_box';
-    }
-
-    /**
-     * @param bool $saving
+     * @param array $arr
      *
-     * @return \CMB2
+     * @return bool
      */
-    public function cmb2($saving = false)
+    private function is_assoc(array $arr)
     {
-        // Create a new box in the class
-        $cmb2 = new CMB2([
-            'id' => $this->getCMB2Id(), // Option name is taken from the WP_Widget class.
-            'hookup' => false,
-            'show_on' => [
-                'key' => 'options-page', // Tells CMB2 to handle this as an option
-                'value' => [$this->option_name],
-            ],
-        ], $this->option_name);
-
-        // Add fields to form
-        foreach ($this->getFields() as $field) {
-            // Translate the id to a widget form field name if we're saving the data
-            if (!$saving) {
-                $field['id'] = $this->get_field_id($field['id']);
-            }
-
-            // Add classes
-            if (isset($field['classes']) && !\is_array($field['classes'])) {
-                $field['classes'] = [$field['classes']];
-            }
-
-            $field['classes'][] = 'cmb2-widgets';
-
-            // FIXME: Workaround for issue: https://github.com/CMB2/CMB2-Snippet-Library/issues/66
-            if ('group' === $field['type']) {
-                // Update group fields default_cb
-                foreach ($field['fields'] as $group_field_index => $group_field) {
-                    $group_field['default_cb'] = [$this, 'default_cb'];
-
-                    $field['fields'][$group_field_index] = $group_field;
-                }
-            }
-
-            // Add callback and then add the field
-            $field['default_cb'] = [$this, 'default_cb'];
-            $cmb2->add_field($field);
+        if ([] === $arr) {
+            return false;
         }
 
-        return $cmb2;
+        return array_keys($arr) !== range(0, \count($arr) - 1);
     }
 
-    public static function adminInit()
+    public function admin_init()
     {
-        // Only run this once
-        if (self::$adminInit) {
+        if (\defined('DOING_AJAX') && DOING_AJAX) {
             return;
         }
 
-        self::$adminInit = true;
-
-        // Include assets
-        self::includes();
-    }
-
-    public static function init()
-    {
-        // Only run this once
-        if (self::$init) {
-            return;
+        if (\defined('CMB2_LOADED')) {
+            // Enqueue CMB assets
+            CMB2_hookup::enqueue_cmb_css();
+            CMB2_hookup::enqueue_cmb_js();
         }
-
-        self::$init = true;
     }
 
     /**
@@ -270,19 +173,6 @@ abstract class WidgetBuilder extends \WP_Widget
         return $display;
     }
 
-    public static function includes()
-    {
-        if (\defined('DOING_AJAX') && DOING_AJAX) {
-            return;
-        }
-
-        if (\defined('CMB2_LOADED')) {
-            // Enqueue CMB assets
-            CMB2_hookup::enqueue_cmb_css();
-            CMB2_hookup::enqueue_cmb_js();
-        }
-    }
-
     /**
      * @param array $new_instance
      * @param array $old_instance
@@ -291,7 +181,7 @@ abstract class WidgetBuilder extends \WP_Widget
      */
     public function update($new_instance, $old_instance)
     {
-        $fields = $this->getFields();
+        $fields = $this->get_fields();
         $sanitized = $this->cmb2(true)->get_sanitized_values($new_instance);
 
         // FIXME: Workaround for file id fields not saving properly
@@ -306,6 +196,71 @@ abstract class WidgetBuilder extends \WP_Widget
     }
 
     /**
+     * @return array
+     */
+    protected function get_fields()
+    {
+        return $this->fields;
+    }
+
+    /**
+     * @param bool $saving
+     *
+     * @return \CMB2
+     */
+    public function cmb2($saving = false)
+    {
+        // Create a new box in the class
+        $cmb2 = new CMB2([
+            'id' => $this->get_cmb2_id(), // Option name is taken from the WP_Widget class.
+            'hookup' => false,
+            'show_on' => [
+                'key' => 'options-page', // Tells CMB2 to handle this as an option
+                'value' => [$this->option_name],
+            ],
+        ], $this->option_name);
+
+        // Add fields to form
+        foreach ($this->get_fields() as $field) {
+            // Translate the id to a widget form field name if we're saving the data
+            if (!$saving) {
+                $field['id'] = $this->get_field_name($field['id']);
+            }
+
+            // Add classes
+            if (isset($field['classes']) && !\is_array($field['classes'])) {
+                $field['classes'] = [$field['classes']];
+            }
+
+            $field['classes'][] = 'cmb2-widgets';
+
+            // FIXME: Workaround for issue: https://github.com/CMB2/CMB2-Snippet-Library/issues/66
+            if ('group' === $field['type']) {
+                // Update group fields default_cb
+                foreach ($field['fields'] as $group_field_index => $group_field) {
+                    $group_field['default_cb'] = [$this, 'default_cb'];
+
+                    $field['fields'][$group_field_index] = $group_field;
+                }
+            }
+
+            // Add callback and then add the field
+            $field['default_cb'] = [$this, 'default_cb'];
+            $cmb2->add_field($field);
+        }
+
+        return $cmb2;
+    }
+
+    /**
+     * @return string
+     */
+    protected function get_cmb2_id()
+    {
+        return $this->option_name.'_box';
+    }
+
+    /**
      * Back-end widget form with defaults.
      *
      * @param array $instance current settings
@@ -316,12 +271,20 @@ abstract class WidgetBuilder extends \WP_Widget
         add_filter('cmb2_override_meta_value', [$this, 'cmb2_override_meta_value'], 11, 4);
 
         // If there are no settings, set up defaults
-        $this->_instance = wp_parse_args((array) $instance, $this->getDefaults());
+        $this->_instance = wp_parse_args((array) $instance, $this->get_defaults());
         $cmb2 = $this->cmb2();
         $cmb2->object_id($this->option_name);
         $cmb2->show_form();
 
-        remove_filter('cmb2_override_meta_value', [$this, 'cmb2_override_meta_value']);
+        remove_filter('cmb2_override_meta_value', [$this, 'cmb2_override_meta_value'], 11);
+    }
+
+    /**
+     * @return array
+     */
+    protected function get_defaults()
+    {
+        return $this->defaults;
     }
 
     /**
@@ -332,77 +295,36 @@ abstract class WidgetBuilder extends \WP_Widget
      */
     public function default_cb(array $field_args = null, CMB2_Field $field)
     {
+        $field_id = $field->args('id');
+        $field_id_key = $field->args('id_key');
+
         // FIXME: Workaround for issue: https://github.com/CMB2/CMB2-Snippet-Library/issues/66
         if ($field->group) {
-            if (isset($this->_instance[$field->group->args('id_key')])) {
-                $data = $this->_instance[$field->group->args('id_key')];
+            if (isset($this->_instance[$field_id_key])) {
+                $data = $this->_instance[$field_id_key];
 
-                return (\is_array($data) && isset($data[$field->group->index][$field->args('id_key')]))
-                    ? $data[$field->group->index][$field->args('id_key')]
-                    : null;
+                return (\is_array($data) && isset($data[$field->group->index][$field_id_key])) ? $data[$field->group->index][$field_id_key] : null;
             }
 
             return null;
         }
 
-        return $this->_instance[$field->args('id_key')] ?? null;
+        $restored_id = $this->restore_field_id($field_id);
+
+        if (!empty($this->_instance[$restored_id])) {
+            return $this->_instance[$restored_id];
+        }
+
+        return $this->_instance[$field_id_key] ?? null;
     }
 
     /**
-     * @param array $arr
+     * @param string $field_id
      *
-     * @return bool
+     * @return string
      */
-    private function is_assoc(array $arr)
+    private function restore_field_id(string $field_id = '')
     {
-        if ([] === $arr) {
-            return false;
-        }
-
-        return array_keys($arr) !== range(0, \count($arr) - 1);
-    }
-
-    /**
-     * @param string $name
-     * @param string $file
-     * @param string $__FILE__
-     * @param int    $depth
-     *
-     * @return bool|mixed|string
-     */
-    public static function plugins_url(string $name, string $file, string $__FILE__, int $depth = 0)
-    {
-        // Traverse up to root
-        $dir = \dirname($__FILE__);
-
-        for ($i = 0; $i < $depth; ++$i) {
-            $dir = \dirname($dir);
-        }
-
-        $root = $dir;
-        $plugins = \dirname($root);
-
-        // Compare plugin directory with our found root
-        if (WP_PLUGIN_DIR !== $plugins || WPMU_PLUGIN_DIR !== $plugins) {
-            // Must be a symlink, guess location based on default directory name
-            $resource = $name.'/'.$file;
-            $url = false;
-
-            if (file_exists(WPMU_PLUGIN_DIR.'/'.$resource)) {
-                $url = WPMU_PLUGIN_URL.'/'.$resource;
-            } elseif (file_exists(WP_PLUGIN_DIR.'/'.$resource)) {
-                $url = WP_PLUGIN_URL.'/'.$resource;
-            }
-
-            if ($url) {
-                if (is_ssl() && 0 !== strpos($url, 'https://')) {
-                    $url = str_replace('http://', 'https://', $url);
-                }
-
-                return $url;
-            }
-        }
-
-        return plugins_url($file, $root);
+        return trim(str_replace(['[]', '[', ']'], ['', '-', ''], $field_id), '-');
     }
 }
